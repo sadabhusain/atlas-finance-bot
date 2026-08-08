@@ -9,7 +9,7 @@ from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, filte
 from telegram.request import HTTPXRequest
 from google import genai
 
-# Load environment variables from the .env file
+# Load environment variables from .env file
 load_dotenv()
 
 # Read secret tokens safely from system memory
@@ -22,7 +22,7 @@ client = genai.Client(api_key=GEMINI_KEY)
 # Dictionary to store conversation history for each user
 user_memory = {}
 
-# System instructions to define the AI's role and rules
+# System instructions defining AI behavior
 SYSTEM_PROMPT = """
 You are Atlas, a personal AI Financial Assistant built specifically for finance professionals.
 Guidelines:
@@ -46,17 +46,13 @@ def run_health_server():
 
 # Handler function to process regular text messages
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id  # Get unique ID of the user
-    user_text = update.message.text     # Get message text sent by user
+    user_id = update.effective_user.id
+    user_text = update.message.text
 
-    # If new user, create a blank history list
     if user_id not in user_memory:
         user_memory[user_id] = []
     
-    # Get last 4 messages from history to maintain context
     recent_context = "\n".join(user_memory[user_id][-4:]) if user_memory[user_id] else "No prior history."
-
-    # Combine instructions, chat history, and new question
     full_prompt = f"{SYSTEM_PROMPT}\n\nRecent History Context:\n{recent_context}\n\nUser Question: {user_text}"
 
     try:
@@ -64,40 +60,32 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             model="gemini-3.6-flash",
             contents=full_prompt
         )
-        reply = response.text  # Extract text answer from AI response
+        reply = response.text
         
-        # Save exchange into memory for next turn
         user_memory[user_id].append(f"User: {user_text}")
         user_memory[user_id].append(f"Atlas: {reply}")
         
-        # Send response back to user on Telegram
         await update.message.reply_text(reply)
         
     except Exception as e:
-        print(f"Terminal Log -> Text error: {e}")  # Print error in terminal for debugging
+        print(f"Terminal Log -> Text error: {e}")
         await update.message.reply_text("Apologies, I encountered an issue analyzing your request.")
 
 # Handler function to process uploaded files (PDFs)
 async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Document received. Analyzing financial data...")
     
-    document = update.message.document                 # Get document info
-    file = await context.bot.get_file(document.file_id) # Get file download path
-    file_bytes = await file.download_as_bytearray()     # Download file as raw bytes
+    document = update.message.document
+    file = await context.bot.get_file(document.file_id)
+    file_bytes = await file.download_as_bytearray()
 
     extracted_text = ""
     
-    # Check if uploaded file is a PDF
     if document.file_name and document.file_name.lower().endswith('.pdf'):
         try:
-            # Read PDF bytes from memory
             pdf_reader = PyPDF2.PdfReader(io.BytesIO(file_bytes))
-            
-            # Extract text from every page of PDF
             for page in pdf_reader.pages:
                 extracted_text += page.extract_text() or ""
-                
-            # Keep first 3000 characters to keep processing fast
             extracted_text = extracted_text[:3000] 
         except Exception as read_err:
             print(f"Terminal Log -> PDF error: {read_err}")
@@ -105,7 +93,6 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         extracted_text = "Standard financial document structure attached."
 
-    # Create analysis prompt with extracted text
     prompt = f"{SYSTEM_PROMPT}\nAnalyze this uploaded financial document and summarize key financial metrics, revenues, risks, or performance concisely:\n\n{extracted_text}"
 
     try:
@@ -120,22 +107,15 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # Main program entry point
 if __name__ == '__main__':
-    # Start internal background thread for Render free web service health check
+    # Start internal web server on background thread for Render port check
     threading.Thread(target=run_health_server, daemon=True).start()
 
-    # Increase network timeout to 60 seconds for larger files
+    # Set custom 60-second timeout for downloading PDFs/requests
     request = HTTPXRequest(connect_timeout=60.0, read_timeout=60.0)
 
-    # Build Telegram application with token and extended timeout
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).request(request).build()
-    
-    # Register text handler
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_text))
-    
-    # Register document handler
     app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
     
     print("Atlas AI Financial Assistant Bot is live and listening...")
-    
-    # Start polling
     app.run_polling()
