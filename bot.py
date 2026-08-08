@@ -59,9 +59,9 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     full_prompt = f"{SYSTEM_PROMPT}\n\nRecent History Context:\n{recent_context}\n\nUser Question: {user_text}"
 
     try:
-        # Call the Gemini API using the updated current stable production model name
+        # Using official stable production model name
         response = client.models.generate_content(
-            model="gemini-3.6-flash",
+            model="gemini-2.5-flash",
             contents=full_prompt
         )
         reply = response.text  # Extract the text answer from the AI response
@@ -109,9 +109,8 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
     prompt = f"{SYSTEM_PROMPT}\nAnalyze this uploaded financial document and summarize key financial metrics, revenues, risks, or performance concisely:\n\n{extracted_text}"
 
     try:
-        # Send the extracted document text to Gemini for analysis
         response = client.models.generate_content(
-            model="gemini-3.6-flash",
+            model="gemini-1.5-flash",
             contents=prompt
         )
         await update.message.reply_text(response.text)
