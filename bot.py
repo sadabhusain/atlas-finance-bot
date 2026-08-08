@@ -3,6 +3,7 @@ import io
 import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import PyPDF2
+import docx
 from dotenv import load_dotenv
 from telegram import Update
 from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, filters
@@ -32,7 +33,6 @@ Guidelines:
 4. Maintain a natural, conversational tone without requiring rigid commands.
 """
 
-# Dummy HTTP server handler to satisfy Render's Free Web Service port check
 # Dummy HTTP server handler to satisfy Render's Free Web Service port check
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -75,47 +75,55 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         print(f"Terminal Log -> Text error: {e}")
         await update.message.reply_text("Apologies, I encountered an issue analyzing your request.")
 
-# Handler function to process uploaded files (PDFs)
+# Handler function to process uploaded files (PDFs and DOCX)
 async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Document received. Analyzing financial data...")
+    status_msg = await update.message.reply_text("Document received! Downloading and extracting financial metrics...")
     
-    document = update.message.document
-    file = await context.bot.get_file(document.file_id)
-    file_bytes = await file.download_as_bytearray()
+    try:
+        document = update.message.document
+        file = await context.bot.get_file(document.file_id)
+        file_bytes = await file.download_as_bytearray()
 
-    extracted_text = ""
-    
-    if document.file_name and document.file_name.lower().endswith('.pdf'):
-        try:
+        extracted_text = ""
+        file_name = document.file_name.lower() if document.file_name else ""
+
+        if file_name.endswith('.pdf'):
             pdf_reader = PyPDF2.PdfReader(io.BytesIO(file_bytes))
             for page in pdf_reader.pages:
                 extracted_text += page.extract_text() or ""
-            extracted_text = extracted_text[:3000] 
-        except Exception as read_err:
-            print(f"Terminal Log -> PDF error: {read_err}")
-            extracted_text = "Error parsing file contents."
-    else:
-        extracted_text = "Standard financial document structure attached."
+            extracted_text = extracted_text[:4000]
 
-    prompt = f"{SYSTEM_PROMPT}\nAnalyze this uploaded financial document and summarize key financial metrics, revenues, risks, or performance concisely:\n\n{extracted_text}"
+        elif file_name.endswith('.docx') or file_name.endswith('.doc'):
+            doc = docx.Document(io.BytesIO(file_bytes))
+            for para in doc.paragraphs:
+                extracted_text += para.text + "\n"
+            extracted_text = extracted_text[:4000]
 
-    try:
+        else:
+            extracted_text = file_bytes.decode('utf-8', errors='ignore')[:4000]
+
+        if not extracted_text.strip():
+            extracted_text = "Standard financial report file attached."
+
+        prompt = f"{SYSTEM_PROMPT}\nAnalyze this uploaded financial document and summarize key financial metrics, revenues, risks, or performance concisely:\n\n{extracted_text}"
+
         response = client.models.generate_content(
             model="gemini-3.6-flash",
             contents=prompt
         )
-        await update.message.reply_text(response.text)
+        await status_msg.edit_text(response.text)
+
     except Exception as e:
         print(f"Terminal Log -> Document error: {e}")
-        await update.message.reply_text("Error processing document contents.")
+        await status_msg.edit_text("Sorry, I encountered an error downloading or parsing that document. Please try re-uploading a standard PDF or DOCX file.")
 
 # Main program entry point
 if __name__ == '__main__':
     # Start internal web server on background thread for Render port check
     threading.Thread(target=run_health_server, daemon=True).start()
 
-    # Set custom 60-second timeout for downloading PDFs/requests
-    request = HTTPXRequest(connect_timeout=60.0, read_timeout=60.0)
+    # Extended 120-second timeout for large document transfers
+    request = HTTPXRequest(connect_timeout=120.0, read_timeout=120.0)
 
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).request(request).build()
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_text))
