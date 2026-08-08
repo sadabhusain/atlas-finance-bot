@@ -6,16 +6,17 @@ import PyPDF2
 from dotenv import load_dotenv
 from telegram import Update
 from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, filters
+from telegram.request import HTTPXRequest
 from google import genai
 
 # Load environment variables from the .env file
 load_dotenv()
 
-# Read the secret tokens safely from system memory
+# Read secret tokens safely from system memory
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 GEMINI_KEY = os.getenv("GEMINI_API_KEY")
 
-# Initialize the Google Gemini AI client
+# Initialize Google Gemini AI client
 client = genai.Client(api_key=GEMINI_KEY)
 
 # Dictionary to store conversation history for each user
@@ -46,31 +47,30 @@ def run_health_server():
 # Handler function to process regular text messages
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id  # Get unique ID of the user
-    user_text = update.message.text     # Get the message text sent by the user
+    user_text = update.message.text     # Get message text sent by user
 
-    # If this is a new user, create a blank history list for them
+    # If new user, create a blank history list
     if user_id not in user_memory:
         user_memory[user_id] = []
     
-    # Get the last 4 messages from history to maintain context
+    # Get last 4 messages from history to maintain context
     recent_context = "\n".join(user_memory[user_id][-4:]) if user_memory[user_id] else "No prior history."
 
-    # Combine instructions, chat history, and the new question
+    # Combine instructions, chat history, and new question
     full_prompt = f"{SYSTEM_PROMPT}\n\nRecent History Context:\n{recent_context}\n\nUser Question: {user_text}"
 
     try:
-        # Call the Gemini API using the updated current stable production model name
         response = client.models.generate_content(
             model="gemini-3.6-flash",
             contents=full_prompt
         )
-        reply = response.text  # Extract the text answer from the AI response
+        reply = response.text  # Extract text answer from AI response
         
-        # Save this exchange into memory for the next message turn
+        # Save exchange into memory for next turn
         user_memory[user_id].append(f"User: {user_text}")
         user_memory[user_id].append(f"Atlas: {reply}")
         
-        # Send the response back to the user on Telegram
+        # Send response back to user on Telegram
         await update.message.reply_text(reply)
         
     except Exception as e:
@@ -87,17 +87,17 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     extracted_text = ""
     
-    # Check if the uploaded file is a PDF
+    # Check if uploaded file is a PDF
     if document.file_name and document.file_name.lower().endswith('.pdf'):
         try:
-            # Read the PDF bytes from memory
+            # Read PDF bytes from memory
             pdf_reader = PyPDF2.PdfReader(io.BytesIO(file_bytes))
             
-            # Extract text from every page of the PDF
+            # Extract text from every page of PDF
             for page in pdf_reader.pages:
                 extracted_text += page.extract_text() or ""
                 
-            # Keep only the first 3000 characters to keep processing fast
+            # Keep first 3000 characters to keep processing fast
             extracted_text = extracted_text[:3000] 
         except Exception as read_err:
             print(f"Terminal Log -> PDF error: {read_err}")
@@ -105,11 +105,10 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         extracted_text = "Standard financial document structure attached."
 
-    # Create the analysis prompt with the extracted text
+    # Create analysis prompt with extracted text
     prompt = f"{SYSTEM_PROMPT}\nAnalyze this uploaded financial document and summarize key financial metrics, revenues, risks, or performance concisely:\n\n{extracted_text}"
 
     try:
-        # Send the extracted document text to Gemini for analysis
         response = client.models.generate_content(
             model="gemini-3.6-flash",
             contents=prompt
@@ -124,16 +123,19 @@ if __name__ == '__main__':
     # Start internal background thread for Render free web service health check
     threading.Thread(target=run_health_server, daemon=True).start()
 
-    # Build the Telegram application with the token
-    app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
+    # Increase network timeout to 60 seconds for larger files
+    request = HTTPXRequest(connect_timeout=60.0, read_timeout=60.0)
+
+    # Build Telegram application with token and extended timeout
+    app = ApplicationBuilder().token(TELEGRAM_TOKEN).request(request).build()
     
-    # Register text handler (handles text but ignores commands like /start)
+    # Register text handler
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_text))
     
-    # Register document handler (handles files like PDFs)
+    # Register document handler
     app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
     
     print("Atlas AI Financial Assistant Bot is live and listening...")
     
-    # Start checking Telegram servers continuously for new messages
+    # Start polling
     app.run_polling()
