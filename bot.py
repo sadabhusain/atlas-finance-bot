@@ -13,7 +13,7 @@ from google import genai
 # Load environment variables from .env file
 load_dotenv()
 
-# Read secret tokens safely from system memory
+# Read secret tokens safely from environment
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 GEMINI_KEY = os.getenv("GEMINI_API_KEY")
 
@@ -33,7 +33,7 @@ Guidelines:
 4. Maintain a natural, conversational tone without requiring rigid commands.
 """
 
-# Dummy HTTP server handler to satisfy Render's port check and UptimeRobot pings
+# 1. DEFINE HEALTH CHECK HANDLER (Handles GET & HEAD for Render + UptimeRobot)
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -46,7 +46,14 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
         self.send_header("Content-type", "text/html")
         self.end_headers()
 
-# Handler function to process regular text messages
+# 2. DEFINE RUN HEALTH SERVER FUNCTION (Must be defined BEFORE main thread calls it)
+def run_health_server():
+    port = int(os.environ.get("PORT", 10000))
+    server = HTTPServer(("0.0.0.0", port), HealthCheckHandler)
+    print(f"Health server listening on port {port}...")
+    server.serve_forever()
+
+# 3. HANDLER FOR TEXT MESSAGES
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     user_text = update.message.text
@@ -73,7 +80,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         print(f"Terminal Log -> Text error: {e}")
         await update.message.reply_text("Apologies, I encountered an issue analyzing your request.")
 
-# Handler function to process uploaded files (PDFs and DOCX)
+# 4. HANDLER FOR DOCUMENTS (PDF & DOCX)
 async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
     status_msg = await update.message.reply_text("Document received! Downloading and extracting financial metrics...")
     
@@ -115,7 +122,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
         print(f"Terminal Log -> Document error: {e}")
         await status_msg.edit_text("Sorry, I encountered an error downloading or parsing that document. Please try re-uploading a standard PDF or DOCX file.")
 
-# Main program entry point
+# 5. MAIN ENTRY POINT
 if __name__ == '__main__':
     # Start internal web server on background thread for Render port check
     threading.Thread(target=run_health_server, daemon=True).start()
