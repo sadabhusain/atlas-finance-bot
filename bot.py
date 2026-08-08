@@ -1,5 +1,7 @@
 import os
 import io
+import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
 import PyPDF2
 from dotenv import load_dotenv
 from telegram import Update
@@ -28,6 +30,18 @@ Guidelines:
 3. Analyze financial queries, stock data, uploaded PDFs, or financial spreadsheet text cleanly.
 4. Maintain a natural, conversational tone without requiring rigid commands.
 """
+
+# Dummy HTTP server handler to satisfy Render's Free Web Service port check
+class HealthCheckHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"Bot is alive!")
+
+def run_health_server():
+    port = int(os.environ.get("PORT", 8080))
+    server = HTTPServer(("0.0.0.0", port), HealthCheckHandler)
+    server.serve_forever()
 
 # Handler function to process regular text messages
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -107,6 +121,9 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # Main program entry point
 if __name__ == '__main__':
+    # Start internal background thread for Render free web service health check
+    threading.Thread(target=run_health_server, daemon=True).start()
+
     # Build the Telegram application with the token
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
     
