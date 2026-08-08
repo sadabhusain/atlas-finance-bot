@@ -33,7 +33,7 @@ Guidelines:
 4. Maintain a natural, conversational tone without requiring rigid commands.
 """
 
-# Dummy HTTP server handler to satisfy Render's Free Web Service port check
+# Dummy HTTP server handler to satisfy Render's port check and UptimeRobot pings
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -41,12 +41,10 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(b"Bot is alive!")
 
-def run_health_server():
-    # Render explicitly passes PORT=10000 into the environment
-    port = int(os.environ.get("PORT", 10000))
-    server = HTTPServer(("0.0.0.0", port), HealthCheckHandler)
-    print(f"Health server listening on port {port}...")
-    server.serve_forever()
+    def do_HEAD(self):
+        self.send_response(200)
+        self.send_header("Content-type", "text/html")
+        self.end_headers()
 
 # Handler function to process regular text messages
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
